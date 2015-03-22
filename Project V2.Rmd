@@ -1,0 +1,92 @@
+---
+title: "Weight Lifting Recognition Project"
+author: "BertrandJ"
+date: "Thursday, March 19, 2015"
+output: html_document
+---
+
+#Executive Summary
+This exercise is part of Johns Hopkins Coursera course on Machine Learning.
+We are using data from <http://groupware.les.inf.puc-rio.br/har> containing captors placed on volunteers doing weight lifting to try to predict the movement they are doing (column "classe"").
+The following steps are performed:
+1. Retain only relevant variables
+2. Split data in train and test sets to perform cross validation
+3. Use PCA to reduce the number of necessary dimensions
+4. Perform clustering (K-means) to determine clusters
+5. Perform cross validation with the obtained model
+6. Use the model for prediction
+
+#Load training data and split it in train and test set
+By looking at the data set, we notice that some columns are used only on summary lines (identified by column "new_window"), and some do not contain quantitative values. We eliminate these columns.
+We also verify if some columns have a near zero variance and can be eliminated
+
+```{r load}
+training = read.table("./pml-training.csv",header=TRUE,sep=",")
+training = training[,c(8:11, 37:49, 60:68, 84:86, 102, 113:124, 140, 151:160)]
+library(caret)
+lowSD = nearZeroVar(training, saveMetrics=FALSE)
+if (length(lowSD)!=0) {training = training[,-lowSD]}
+
+set.seed(30032)
+inTrain=createDataPartition(y=training$classe, p=0.7, list=FALSE)
+train = training[inTrain,]
+test = training[-inTrain,]
+```
+
+#We use PCA to reduce the number of dimensions
+We first normalize data, then perform PCA.
+
+```{r PCA}
+library(e1071)
+preproc = preProcess(train[,-53]) #Normalize
+trainN = predict(preproc, train[,-53])
+# trainN = cbind(trainN, train$classe)
+
+preprocPCA = preProcess(trainN, method="pca", thresh=.99)
+trainCPA = predict(preprocPCA, trainN)
+```
+
+#Perform clustering
+```{r Kmeans}
+modelFit = train(train$classe ~ ., method="knn", data=trainCPA)
+predTrain = predict(modelFit, trainCPA)
+inError = 1 - confusionMatrix(predTrain, train$classe)$overall[[1]]
+```
+The in sample error with this model is `r inError`.
+Less than 2% is good. Let's see if there is a big difference on test set.
+
+#CrossValidation
+```{r CV}
+testN = predict(preproc, test[,-53]) #Normalize
+testCPA = predict(preprocPCA, testN) #Rotate
+predTest = predict(modelFit, testCPA) #predict
+outError = 1 - confusionMatrix(predTest, test$classe)$overall[[1]]
+```
+The expected out of sample error with this model is `r outError`.
+The error rate is slightly bigger, but still around 3%. Therefore, the model generalizes well, and we can apply it on the 20 values provided in pml-testing. 
+
+#Prediction
+```{r Pred}
+testing = read.table("./pml-testing.csv",header=TRUE,sep=",")
+testing = testing[,c(8:11, 37:49, 60:68, 84:86, 102, 113:124, 140, 151:160)]
+
+testingN = predict(preproc, testing[,-53]) #Normalize
+testingCPA = predict(preprocPCA, testingN) #Rotate
+predTesting = predict(modelFit, testingCPA) #predict
+```
+The predicted values are `r predTesting`
+
+#Submit predictions
+```{r submit}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(predTesting)
+```
+
+
+
